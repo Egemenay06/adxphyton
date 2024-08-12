@@ -1,0 +1,99 @@
+!pip install git+https://github.com/rongardF/tvdatafeed tradingview-screener
+!pip install pandas_ta
+!pip install matplotlib
+!pip install vectorbt
+!pip install ta
+
+import pandas as pd
+import ta
+import matplotlib.pyplot as plt
+from tvDatafeed import TvDatafeed, Interval
+from tradingview_screener import get_all_symbols
+import vectorbt as vbt
+import numpy as np
+import warnings
+import pandas as pd
+import numpy as np
+from tvDatafeed import TvDatafeed, Interval
+import pandas as pd
+import numpy as np
+from tvDatafeed import TvDatafeed, Interval
+from tradingview_screener import get_all_symbols
+
+# Initialize TvDatafeed with your TradingView credentials
+tv = TvDatafeed(username='your_username', password='your_password')
+
+def calculate_adx_di(df, i_diLen=14, i_sigLen=14):
+    df = df.copy()
+    
+    # Calculate Directional Movement
+    df['plus_dm'] = np.maximum(df['high'].diff(), 0)
+    df['minus_dm'] = -np.minimum(df['low'].diff(), 0)
+    
+    df['tr'] = np.maximum(df['high'] - df['low'], np.maximum(df['high'] - df['close'].shift(), df['close'].shift() - df['low']))
+    
+    df['plus_dm'] = df['plus_dm'].rolling(window=i_diLen).sum()
+    df['minus_dm'] = df['minus_dm'].rolling(window=i_diLen).sum()
+    df['tr'] = df['tr'].rolling(window=i_diLen).sum()
+    
+    df['plus_di'] = 100 * (df['plus_dm'] / df['tr'])
+    df['minus_di'] = 100 * (df['minus_dm'] / df['tr'])
+    
+    df['adx'] = df[['plus_di', 'minus_di']].abs().sum(axis=1).rolling(window=i_sigLen).mean()
+    
+    return df
+
+def check_signals(df):
+    df = df.copy()
+    
+    # Define conditions
+    df['hlRange'] = df['adx'] <= 20
+    df['diUp'] = df['plus_di'] >= df['minus_di']
+    df['diUpUp'] = df['plus_di'] >= 35
+    df['diDn'] = df['minus_di'] > df['plus_di']
+    df['diDnDn'] = df['minus_di'] > 35
+    df['sigUp'] = df['adx'] > df['adx'].shift()
+    
+    # Entry and strong buy conditions
+    df['entryLong'] = (~df['hlRange'].astype(bool)) & df['diUp'] & df['sigUp'] & (~df['diUp'].shift().astype(bool))
+    df['entryLongStr'] = (~df['hlRange'].astype(bool)) & df['diUp'] & df['sigUp'] & df['diUpUp']
+    
+    # Get latest signals
+    latest_signal = df.iloc[-1]
+    
+    if latest_signal['entryLongStr']:
+        return True
+    return False
+
+def main():
+    # Fetch NASDAQ symbols from TradingView
+    all_symbols = get_all_symbols(market='america')
+    nasdaq_symbols = [symbol for symbol in all_symbols if 'NASDAQ:' in symbol]
+
+    strong_buy_symbols = []
+    
+    # Iterate through symbols and check signals
+    for symbol in nasdaq_symbols:
+        try:
+            exchange, symbol_code = symbol.split(':')
+            print(f"Processing {symbol_code}...")
+            
+            data = tv.get_hist(symbol=symbol_code, exchange=exchange, interval=Interval.in_daily, n_bars=100)
+            data = data.reset_index()
+            
+            # Calculate ADX and DI
+            data = calculate_adx_di(data)
+            
+            # Check for strong buy alert
+            if check_signals(data):
+                print(f"Strong Buy Alert for {symbol_code}!")
+                
+        except Exception as e:
+            print(f"Error processing data for {symbol}: {e}")
+
+if __name__ == "__main__":
+    main()
+
+print("Symbols with 'Strong Buy Alert':")
+for symbol in strong_buy_symbols:
+    print(symbol)
